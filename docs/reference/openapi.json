@@ -366,7 +366,7 @@
   },
   "info": {
     "title": "Imagies",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -390,7 +390,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Health"
+        "summary": "Health",
+        "tags": [
+          "Service"
+        ]
       }
     },
     "/v1/engines": {
@@ -416,7 +419,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Engines"
+        "summary": "Engines",
+        "tags": [
+          "Service"
+        ]
       }
     },
     "/v1/generation/engines": {
@@ -690,7 +696,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Upload"
+        "summary": "Upload",
+        "tags": [
+          "Images"
+        ]
       }
     },
     "/v1/images/detect": {
@@ -737,7 +746,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Detect"
+        "summary": "Detect",
+        "tags": [
+          "Analysis"
+        ]
       }
     },
     "/v1/images/generations": {
@@ -869,7 +881,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Match"
+        "summary": "Match",
+        "tags": [
+          "Analysis"
+        ]
       }
     },
     "/v1/images/montage": {
@@ -908,7 +923,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Montage"
+        "summary": "Montage",
+        "tags": [
+          "Images"
+        ]
       }
     },
     "/v1/images/transform": {
@@ -947,7 +965,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Transform"
+        "summary": "Transform",
+        "tags": [
+          "Images"
+        ]
       }
     },
     "/v1/images/{image_id}": {
@@ -981,7 +1002,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete"
+        "summary": "Delete",
+        "tags": [
+          "Images"
+        ]
       },
       "get": {
         "description": "Download a staged image by ID.",
@@ -1018,7 +1042,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Download"
+        "summary": "Download",
+        "tags": [
+          "Images"
+        ]
       }
     },
     "/v1/models": {

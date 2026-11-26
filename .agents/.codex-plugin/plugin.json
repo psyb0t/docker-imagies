@@ -1,0 +1,13 @@
+{
+  "name": "imagies",
+  "description": "Self-hosted still-image editing, CLIP matching, YOLO detection and image generation over REST and MCP.",
+  "homepage": "https://github.com/psyb0t/docker-imagies",
+  "license": "WTFPL",
+  "author": {
+    "name": "psyb0t",
+    "url": "https://github.com/psyb0t"
+  },
+  "version": "0.2.1",
+  "repository": "https://github.com/psyb0t/docker-imagies",
+  "skills": "./skills/"
+}

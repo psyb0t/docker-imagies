@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "imagies": {
+      "type": "http",
+      "url": "${user_config.api_url}/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer ${user_config.api_token}"
+      }
+    }
+  }
+}

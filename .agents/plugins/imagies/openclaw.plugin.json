@@ -1,0 +1,41 @@
+{
+  "name": "@psyb0t/imagies",
+  "id": "@psyb0t/imagies",
+  "version": "0.0.0",
+  "type": "code-plugin",
+  "summary": "Connect an agent to a self-hosted Imagies server over MCP.",
+  "description": "Crop, resize and convert with transform, make a grid with montage, rank text queries with match, find objects with detect, and generate images with generate. Run Imagies and supply its URL. https://github.com/psyb0t/docker-imagies",
+  "extensions": [
+    "./index.js"
+  ],
+  "mcpServers": {
+    "imagies": {
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "./bin/cli.js"
+      ]
+    }
+  },
+  "compat": {
+    "pluginApi": ">=2026.3.24-beta.2"
+  },
+  "build": {
+    "openclawVersion": "2026.3.24-beta.2"
+  },
+  "environment": {
+    "IMAGIES_URL": {
+      "required": true,
+      "description": "Base URL of your running Imagies instance. The bridge appends /v1/mcp."
+    },
+    "IMAGIES_AUTH_TOKEN": {
+      "required": false,
+      "description": "Bearer token when authentication is enabled."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

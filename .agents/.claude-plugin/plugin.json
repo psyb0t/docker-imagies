@@ -1,0 +1,24 @@
+{
+  "name": "imagies",
+  "description": "Self-hosted still-image editing, CLIP matching, YOLO detection and image generation over REST and MCP.",
+  "homepage": "https://github.com/psyb0t/docker-imagies",
+  "license": "WTFPL",
+  "author": {
+    "name": "psyb0t",
+    "url": "https://github.com/psyb0t"
+  },
+  "userConfig": {
+    "api_url": {
+      "type": "string",
+      "title": "Imagies URL",
+      "description": "Base URL of your trusted Imagies server.",
+      "required": true
+    },
+    "api_token": {
+      "type": "string",
+      "title": "Imagies bearer token",
+      "description": "Bearer token when authentication is enabled.",
+      "sensitive": true
+    }
+  }
+}

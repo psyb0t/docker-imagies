@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.1]
+
+- Group the REST reference into Service, Images, Analysis and Generation.
+- Package the Imagies skill and MCP bridge. Publish tagged releases to ClawHub and the MCP Registry, and include Glama maintainer metadata.
+
 ## [0.2.0]
 
 - Ship editing, CLIP, YOLO and generation in both `latest` (CPU) and `latest-cuda` (NVIDIA). Switch from `latest-generation` or `latest-generation-cuda` to those tags and keep your mounted data.

@@ -256,7 +256,7 @@ wheels = [
 
 [[package]]
 name = "imagies"
-version = "0.2.0"
+version = "0.2.1"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },

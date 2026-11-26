@@ -80,6 +80,15 @@ The downloader writes regular GGUF and safetensors files to `/data/models/genera
 
 Connect a streamable HTTP MCP client to `http://localhost:8000/v1/mcp`. Editing and vision tools take the matching REST body inside a `spec` argument. Upload and download files over REST. See the [MCP guide](https://psyb0t.github.io/docker-imagies/mcp/) for setup and tool arguments.
 
+Install the OpenClaw bridge and skill from ClawHub. Set `IMAGIES_URL` to your server's base URL and provide `IMAGIES_AUTH_TOKEN` if authentication is enabled.
+
+```sh
+openclaw plugins install clawhub:@psyb0t/imagies
+openclaw skills install @psyb0t/imagies
+```
+
+The repository also includes the [Imagies skill](.agents/skills/imagies/SKILL.md) for Codex and Claude Code.
+
 ## Documentation
 
 The [Imagies docs](https://psyb0t.github.io/docker-imagies/) cover Docker images, model installation, REST and MCP. The [REST API reference](https://psyb0t.github.io/docker-imagies/api/) includes the downloadable OpenAPI document.

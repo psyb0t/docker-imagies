@@ -39,6 +39,7 @@ FROM psyb0t/torchbase:py3.12-torch2.14-latest-cu126 AS runtime-cuda
 ENV EXTRA_ARGS="--clip-on-cpu,--diffusion-fa"
 
 FROM runtime-${ACCELERATOR}
+LABEL io.modelcontextprotocol.server.name="io.github.psyb0t/imagies"
 USER root
 ARG ACCELERATOR
 ENV PYTHONPATH=/app/src PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
