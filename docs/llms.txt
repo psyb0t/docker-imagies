@@ -1,0 +1,9 @@
+# Imagies
+
+> Still-image editing, CLIP matching, YOLO detection, and Stable Diffusion over REST and MCP.
+
+- [Guide](https://psyb0t.github.io/docker-imagies/)
+- [Deployment](https://psyb0t.github.io/docker-imagies/deployment/)
+- [REST API](https://psyb0t.github.io/docker-imagies/api/)
+- [OpenAPI JSON](https://psyb0t.github.io/docker-imagies/reference/openapi.json)
+- [MCP](https://psyb0t.github.io/docker-imagies/mcp/)

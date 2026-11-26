@@ -1,0 +1,92 @@
+name: pipeline
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+
+concurrency:
+  group: ${{ github.workflow }}-caller-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions: {}
+
+jobs:
+  code:
+    if: github.ref_type == 'branch'
+    permissions:
+      contents: read
+      security-events: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/code-workflow.yml@master
+    with:
+      lint_command: make lint
+      test_command: make test test-worker
+
+  docker:
+    needs: [code]
+    if: github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
+    permissions:
+      contents: write
+      security-events: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/docker-image-workflow.yml@master
+    with:
+      repository_name: psyb0t/imagies
+      target_platforms: linux/amd64
+      build_targets: >-
+        [
+          {"file":"Dockerfile","tag_suffix":""},
+          {"file":"Dockerfile","tag_suffix":"-cuda","build_args":"ACCELERATOR=cuda"},
+          {"file":"Dockerfile.generation","tag_suffix":"-generation"},
+          {"file":"Dockerfile.generation","tag_suffix":"-generation-cuda","build_args":"ACCELERATOR=cuda"}
+        ]
+      push_sha_tag: true
+      scan_severity: high
+      cache_mode: min
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  wait:
+    if: github.ref_type == 'tag'
+    permissions:
+      actions: read
+    uses: psyb0t/reusable-github-workflows/.github/workflows/wait-for-default-branch.yml@master
+
+  docker-promote:
+    needs: [wait]
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+      security-events: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/docker-image-workflow.yml@master
+    with:
+      repository_name: psyb0t/imagies
+      target_platforms: linux/amd64
+      build_targets: >-
+        [
+          {"file":"Dockerfile","tag_suffix":""},
+          {"file":"Dockerfile","tag_suffix":"-cuda","build_args":"ACCELERATOR=cuda"},
+          {"file":"Dockerfile.generation","tag_suffix":"-generation"},
+          {"file":"Dockerfile.generation","tag_suffix":"-generation-cuda","build_args":"ACCELERATOR=cuda"}
+        ]
+      promote_on_tag: true
+      create_release: false
+      scan_enabled: false
+      sync_description: false
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  release:
+    needs: [docker-promote]
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/release-workflow.yml@master
+
+  badges:
+    needs: [code, release]
+    if: always() && ((github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch && needs.code.result == 'success') || (github.ref_type == 'tag' && needs.release.result == 'success'))
+    permissions:
+      contents: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/create-badges.yml@master

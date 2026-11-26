@@ -1,0 +1,26 @@
+[project]
+name = "imagies"
+version = "0.1.0"
+description = "Still-image editing and analysis over REST and MCP"
+requires-python = ">=3.12,<3.13"
+dependencies = ["fastapi==0.115.12", "httpx==0.28.1", "mcp==1.27.1", "pillow==12.2.0", "uvicorn==0.34.2"]
+
+[project.optional-dependencies]
+vision = ["numpy==2.2.6", "onnxruntime==1.23.2", "transformers==4.57.6"]
+
+[dependency-groups]
+dev = ["pytest==8.3.3", "ruff==0.7.0"]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+exclude-newer = "2026-11-19T00:00:00Z"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ARG", "SIM", "C4"]
+ignore = ["E501"]

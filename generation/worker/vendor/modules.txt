@@ -1,0 +1,22 @@
+# github.com/google/uuid v1.6.0
+## explicit
+github.com/google/uuid
+# github.com/psyb0t/aichteeteapee v1.7.0
+## explicit; go 1.26
+github.com/psyb0t/aichteeteapee
+github.com/psyb0t/aichteeteapee/serbewr
+github.com/psyb0t/aichteeteapee/serbewr/middleware
+# github.com/psyb0t/common-go v0.0.0-20260418092513-56e604e3f58c
+## explicit; go 1.26
+github.com/psyb0t/common-go/errors
+github.com/psyb0t/common-go/slogging
+# github.com/psyb0t/ctxerrors v0.4.0
+## explicit; go 1.26
+github.com/psyb0t/ctxerrors
+# github.com/psyb0t/gonfiguration v1.5.0
+## explicit; go 1.25
+github.com/psyb0t/gonfiguration
+# github.com/psyb0t/slogging v1.7.0
+## explicit; go 1.26
+github.com/psyb0t/slogging/handlers
+github.com/psyb0t/slogging/slogconf
