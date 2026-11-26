@@ -43,7 +43,11 @@ docker run --rm -v imagies:/data psyb0t/imagies:latest \
   python -m imagies.models generation-cpu
 ```
 
-Use `generation-cuda` with the CUDA generation image to install its larger catalog. Gated models require accepting their terms and passing `HF_TOKEN` to the downloader. Installed generation weights work offline. To bring your own YOLOv8 detection export, put the ONNX file at `/data/models/yolo/model.onnx` and put one class per line in `labels.txt`. The float32 input is NCHW and the output is the raw pre-NMS detection tensor.
+Use `generation-cuda` with the CUDA image to install its larger catalog. Gated models require accepting their terms and setting `HF_TOKEN`.
+
+Set `IMAGIES_MODEL_DOWNLOAD=startup` to fetch missing CLIP and generation weights before the API starts. Startup skips missing gated models when `HF_TOKEN` is unset. Set it to `on-demand` to fetch CLIP on the first match request or fetch the selected generation model when a request first needs it. Both values use the files already on disk. Keep the variable unset to use the existing installation commands.
+
+For YOLOv8 detection, mount your ONNX export at `/data/models/yolo/model.onnx` and put one class per line in `labels.txt`. The float32 input is NCHW and the output is the raw pre-NMS detection tensor.
 
 ## Configuration
 
@@ -52,6 +56,7 @@ Use `generation-cuda` with the CUDA generation image to install its larger catal
 | `IMAGIES_AUTH_TOKEN` | Optional shared bearer token. Set it before serving clients beyond loopback. |
 | `IMAGIES_MCP_ALLOWED_HOSTS` | Comma-separated allowed MCP Host values. Include the port when the client sends one. |
 | `IMAGIES_GENERATION` | Defaults to `1`. Set it to `0` to skip the worker and generation endpoints. |
+| `IMAGIES_MODEL_DOWNLOAD` | Unset by default. Use `startup` or `on-demand` to fetch missing weights automatically. |
 | `IDLE_TIMEOUT` | Generation model idle timeout, default `5m`. |
 | `LOAD_TIMEOUT` | Generation model load timeout, default `10m`. |
 | `HF_TOKEN` | Optional downloader token for gated weights. |

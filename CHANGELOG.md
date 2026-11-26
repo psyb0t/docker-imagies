@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `IMAGIES_MODEL_DOWNLOAD` for startup or first-use downloads of missing CLIP and generation weights.
+
+- Add `POST /v1/unload` to release generation, CLIP, and YOLO memory while the API stays up.
+
 ## [0.2.1]
 
 - Group the REST reference into Service, Images, Analysis and Generation.

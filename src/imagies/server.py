@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -12,10 +14,11 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from imagies.constants import DATA_DIR
-from imagies.errors import ImageMissing, InvalidImage, ModelUnavailable
+from imagies.errors import ImageMissing, InvalidImage, ModelProcessError, ModelUnavailable
 from imagies.generation import Generation, attach_generation
 from imagies.images import (
     MAX_UPLOAD_BYTES,
@@ -27,18 +30,35 @@ from imagies.images import (
     Store,
     Transform,
 )
-from imagies.vision import Vision
+from imagies.model_process import ModelProcess
+from imagies.models import download_clip, model_download_mode
+from imagies.vision import Vision, VisionWorker
 
 _SERVICE_TAGS = ["Service"]
 _IMAGE_TAGS = ["Images"]
 _ANALYSIS_TAGS = ["Analysis"]
+_log = logging.getLogger(__name__)
+
+
+class UnloadResult(BaseModel):
+    unloaded: list[str] = Field(description="IDs of models and vision engines released.")
 
 
 def build_app(
-    data_dir: Path, auth_token: str = "", generation: Generation | None = None
+    data_dir: Path,
+    auth_token: str = "",
+    generation: Generation | None = None,
+    *,
+    vision_worker: ModelProcess | None = None,
 ) -> FastAPI:
     store = Store(data_dir / "images")
     vision = Vision(data_dir / "models")
+    download_mode = model_download_mode()
+    if generation is not None and download_mode:
+        generation.enable_downloads(vision.root / "generation")
+    worker = vision_worker if vision_worker is not None else ModelProcess(VisionWorker, vision.root)
+    unload_lock = asyncio.Lock()
+    active_operations = 0
     mcp = FastMCP(
         "imagies",
         stateless_http=True,
@@ -65,6 +85,11 @@ def build_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         async with AsyncExitStack() as stack:
+            stack.push_async_callback(worker.stop)
+            if download_mode == "startup":
+                await run_in_threadpool(download_clip, vision.root)
+                if generation is not None:
+                    await generation.prefetch()
             if generation is not None:
                 await stack.enter_async_context(generation.run())
             await stack.enter_async_context(mcp.session_manager.run())
@@ -95,6 +120,41 @@ def build_app(
     async def unavailable(_request: Request, error: Exception) -> JSONResponse:
         return JSONResponse({"detail": str(error)}, status_code=404)
 
+    @app.exception_handler(ModelProcessError)
+    async def worker_failed(_request: Request, error: ModelProcessError) -> JSONResponse:
+        return JSONResponse({"detail": str(error)}, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
+
+    def check_unloading() -> None:
+        if unload_lock.locked():
+            raise HTTPException(HTTPStatus.CONFLICT, "models are being unloaded")
+
+    @asynccontextmanager
+    async def model_operation() -> AsyncIterator[None]:
+        nonlocal active_operations
+        check_unloading()
+        active_operations += 1
+        try:
+            yield
+        finally:
+            active_operations -= 1
+
+    @app.post(
+        "/v1/unload",
+        tags=_SERVICE_TAGS,
+        summary="Unload all models",
+        description="Stop resident generation and vision model processes and return their IDs.",
+        responses={409: {"description": "A model is loading or processing a request."}},
+    )
+    async def unload_all() -> UnloadResult:
+        check_unloading()
+        if active_operations:
+            raise HTTPException(HTTPStatus.CONFLICT, "a model is busy")
+        async with unload_lock:
+            unloaded = await generation.unload_resident() if generation is not None else []
+            unloaded.extend(worker.resident or [])
+            await worker.stop()
+        return UnloadResult(unloaded=unloaded)
+
     @app.get("/health", include_in_schema=False)
     @app.get(
         "/healthz", tags=_SERVICE_TAGS, description="Process health. No authentication required."
@@ -109,10 +169,10 @@ def build_app(
     @app.get(
         "/v1/engines",
         tags=_SERVICE_TAGS,
-        description="List models with installed dependencies and local weights.",
+        description="List vision engines that can use installed weights or a configured download.",
     )
     async def engines() -> dict[str, list[str]]:
-        return {"engines": vision.available()}
+        return {"engines": vision.available(downloadable_clip=bool(download_mode))}
 
     @app.post(
         "/v1/images",
@@ -186,9 +246,18 @@ def build_app(
     )
     @mcp.tool()
     async def match(spec: Match) -> dict[str, list[dict[str, Any]]]:
-        """Rank text queries for each staged image by CLIP similarity. Requires local CLIP weights."""
+        """Rank text queries for each staged image by CLIP similarity."""
         paths = store.paths(spec.image_ids)
-        results = await run_in_threadpool(vision.match, paths, spec.queries)
+        async with model_operation():
+            if download_mode:
+                try:
+                    await run_in_threadpool(download_clip, vision.root)
+                except (OSError, ValueError) as exc:
+                    _log.warning("CLIP weights unavailable", extra={"reason": str(exc)})
+                    raise HTTPException(
+                        HTTPStatus.SERVICE_UNAVAILABLE, "CLIP weights are unavailable"
+                    ) from exc
+            results = await worker.call("match", paths, spec.queries)
         return {
             "images": [
                 {"image_id": image_id, **result}
@@ -205,7 +274,8 @@ def build_app(
     async def detect(spec: Detect) -> dict[str, list[dict[str, Any]]]:
         """Find objects in staged images. Returns labels, scores, and normalized boxes."""
         paths = store.paths(spec.image_ids)
-        results = await run_in_threadpool(vision.detect, paths, spec.confidence)
+        async with model_operation():
+            results = await worker.call("detect", paths, spec.confidence)
         return {
             "images": [
                 {"image_id": image_id, **result}
@@ -214,7 +284,7 @@ def build_app(
         }
 
     if generation is not None:
-        attach_generation(app, mcp, store, generation)
+        attach_generation(app, mcp, store, generation, model_operation)
     app.mount("/v1/mcp", mcp.streamable_http_app())
     return app
 

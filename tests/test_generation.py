@@ -158,12 +158,28 @@ def test_engine_controls_and_legacy_aliases(tmp_path, monkeypatch) -> None:
         assert missing.status_code == 400
         assert missing.json() == {"detail": "unknown model for this generation engine"}
         assert client.delete(engine + "/model").status_code == 409
+        assert client.post("/v1/unload").status_code == 409
         assert client.post("/sdcpp/v1/unload").json() == {"ok": True}
         assert client.delete(engine + "/active").status_code == 204
         assert calls[-1].url.path == "/sdcpp/v1/cancel"
         paths = client.get("/openapi.json").json()["paths"]
         assert "put" in paths[root + "/{engine}/model"]
         assert all(not path.startswith("/sdcpp/") for path in paths)
+
+
+def test_bulk_unload_reports_generation_model(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("MODEL_PREFIX", "example-")
+    responses = iter([{"unloaded": True, "model": "sd-turbo"}, {"already_unloaded": True}])
+
+    def worker(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/sdcpp/v1/unload"
+        assert request.url.params["fail_if_busy"] == "true"
+        return httpx.Response(200, json=next(responses))
+
+    backend = Generation(transport=httpx.MockTransport(worker))
+    with TestClient(build_app(tmp_path, generation=backend)) as client:
+        assert client.post("/v1/unload").json() == {"unloaded": ["example-sd-turbo"]}
+        assert client.post("/v1/unload").json() == {"unloaded": []}
 
 
 def test_download_integrity_and_existing_weight(tmp_path) -> None:
@@ -184,6 +200,49 @@ def test_download_integrity_and_existing_weight(tmp_path) -> None:
     assert path.is_file() and not path.is_symlink() and path.read_bytes() == payload
     assert len(calls) == 1 and calls[0].url.path == "/example/model/resolve/revision/model.gguf"
     assert calls[0].headers.get("authorization") is None
+
+
+@pytest.mark.parametrize("mode", ["startup", "on-demand"])
+def test_automatic_generation_download_fetches_only_missing_files(tmp_path, monkeypatch, mode):
+    monkeypatch.setenv("IMAGIES_MODEL_DOWNLOAD", mode)
+    registry = tmp_path / "registry.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "models": {
+                    "sd-turbo": {"args": ["/models/sd_turbo-f16-q8_0.gguf"]},
+                    "sdxl-turbo": {"args": ["/models/sd_xl_turbo_1.0.q8_0.gguf"]},
+                },
+                "default_model": "sd-turbo",
+            }
+        )
+    )
+    monkeypatch.setenv("MODELS_FILE", str(registry))
+    monkeypatch.setenv("MODEL_PREFIX", "example-")
+    directory = tmp_path / "models" / "generation"
+    directory.mkdir(parents=True)
+    (directory / "sd_xl_turbo_1.0.q8_0.gguf").write_bytes(b"already installed")
+    monkeypatch.setattr("imagies.server.download_clip", lambda root: root / "clip")
+    downloads = []
+
+    def download(_client, root, asset, _token):
+        downloads.append(asset.name)
+        (root / asset.name).write_bytes(b"downloaded")
+
+    monkeypatch.setattr("imagies.generation_models.download_asset", download)
+
+    def worker(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/images/generations"
+        assert (directory / "sd_turbo-f16-q8_0.gguf").is_file()
+        return httpx.Response(200, json={"data": []})
+
+    generation = Generation(transport=httpx.MockTransport(worker))
+    with TestClient(build_app(tmp_path, generation=generation)) as client:
+        assert len(downloads) == int(mode == "startup")
+        args = {"model": "example-sd-turbo", "prompt": "square"}
+        assert client.post("/v1/images/generations", json=args).is_success
+        assert client.post("/v1/images/generations", json=args).is_success
+        assert downloads == ["sd_turbo-f16-q8_0.gguf"]
 
 
 def test_download_discards_partial_file_and_respects_gating(tmp_path) -> None:

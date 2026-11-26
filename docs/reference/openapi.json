@@ -329,6 +329,23 @@
         "title": "Transform",
         "type": "object"
       },
+      "UnloadResult": {
+        "properties": {
+          "unloaded": {
+            "description": "IDs of models and vision engines released.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unloaded",
+            "type": "array"
+          }
+        },
+        "required": [
+          "unloaded"
+        ],
+        "title": "UnloadResult",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -398,7 +415,7 @@
     },
     "/v1/engines": {
       "get": {
-        "description": "List models with installed dependencies and local weights.",
+        "description": "List vision engines that can use installed weights or a configured download.",
         "operationId": "engines_v1_engines_get",
         "responses": {
           "200": {
@@ -1065,6 +1082,31 @@
         "summary": "Models",
         "tags": [
           "Generation"
+        ]
+      }
+    },
+    "/v1/unload": {
+      "post": {
+        "description": "Stop resident generation and vision model processes and return their IDs.",
+        "operationId": "unload_all_v1_unload_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnloadResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "A model is loading or processing a request."
+          }
+        },
+        "summary": "Unload all models",
+        "tags": [
+          "Service"
         ]
       }
     }

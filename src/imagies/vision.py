@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from importlib.util import find_spec
 from pathlib import Path
 from threading import Lock
@@ -21,15 +22,17 @@ class Vision:
         self.lock = Lock()
         self.models: dict[str, Any] = {}
 
-    def available(self) -> list[str]:
+    def available(self, *, downloadable_clip: bool = False) -> list[str]:
         clip = self.root / "clip"
         yolo = self.root / "yolo"
         engines = []
         if (
             find_spec("torch")
             and find_spec("transformers")
-            and (clip / "model.safetensors").is_file()
-            and (clip / "config.json").is_file()
+            and (
+                downloadable_clip
+                or ((clip / "model.safetensors").is_file() and (clip / "config.json").is_file())
+            )
         ):
             engines.append("clip")
         if (
@@ -101,6 +104,27 @@ class Vision:
                 }
                 for path in paths
             ]
+
+
+class VisionWorker:
+    def __init__(self, root: Path) -> None:
+        self.vision = Vision(root)
+        self._lock = asyncio.Lock()
+
+    async def execute(self, operation: str, *args: Any) -> list[dict[str, Any]]:
+        async with self._lock:
+            if operation == "match":
+                return await asyncio.to_thread(self.vision.match, *args)
+            if operation == "detect":
+                return await asyncio.to_thread(self.vision.detect, *args)
+        raise ValueError("unknown vision operation")
+
+    def resident(self) -> list[str]:
+        return sorted(self.vision.models)
+
+    async def close(self) -> None:
+        # Process exit releases the runtimes and their allocator caches.
+        return None
 
 
 def _detect(

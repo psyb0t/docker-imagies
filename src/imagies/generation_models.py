@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -10,6 +12,8 @@ import httpx
 
 _HUB = "https://huggingface.co"
 _CHUNK_BYTES = 1024 * 1024
+_ASSET_ROOT = "/models/"
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -134,11 +138,73 @@ def download_asset(client: httpx.Client, directory: Path, asset: Asset, token: s
 
 
 def download_generation(directory: Path, *, cuda: bool, token: str = "") -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
     assets = CUDA_ASSETS if cuda else CPU_ASSETS
+    _download_assets(directory, assets, token)
+    return directory
+
+
+def _download_assets(directory: Path, assets: tuple[Asset, ...], token: str) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
     with (directory / ".imagies-download.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         with httpx.Client(follow_redirects=True, timeout=120.0) as client:
             for asset in assets:
                 download_asset(client, directory, asset, token)
-    return directory
+
+
+class GenerationDownloads:
+    def __init__(self, directory: Path, registry: Path, prefix: str, token: str) -> None:
+        config = json.loads(registry.read_text())
+        self._files = {
+            name: tuple(
+                arg.removeprefix(_ASSET_ROOT) for arg in item["args"] if arg.startswith(_ASSET_ROOT)
+            )
+            for name, item in config["models"].items()
+        }
+        self._default = config["default_model"]
+        self._directory = directory
+        self._prefix = prefix
+        self._token = token
+        self._assets = {asset.name: asset for asset in CUDA_ASSETS}
+
+    def _missing_files(self, model: str) -> list[str]:
+        missing = []
+        for name in self._files[model]:
+            if not name or Path(name).is_absolute() or ".." in Path(name).parts:
+                raise ValueError(f"Invalid model asset path for {model}")
+            path = self._directory / name
+            if not path.is_file() or path.stat().st_size == 0:
+                missing.append(name)
+        return missing
+
+    def ensure(self, model: str | None) -> None:
+        if model is None:
+            key = self._default
+        else:
+            key = model.strip().removeprefix("openai/")
+            stripped = key.removeprefix(self._prefix)
+            if stripped in self._files:
+                key = stripped
+        if key not in self._files:
+            return
+        missing = self._missing_files(key)
+        if missing:
+            unmanaged = [name for name in missing if name not in self._assets]
+            if unmanaged:
+                raise ValueError(f"No download source for {', '.join(unmanaged)}")
+            _download_assets(
+                self._directory, tuple(self._assets[name] for name in missing), self._token
+            )
+
+    def prefetch(self) -> None:
+        for model in self._files:
+            missing = self._missing_files(model)
+            if any(name not in self._assets for name in missing):
+                _log.warning("skipping unregistered startup download", extra={"model": model})
+                continue
+            if not self._token and any(self._assets[name].gated for name in missing):
+                _log.warning(
+                    "skipping gated startup download without HF_TOKEN", extra={"model": model}
+                )
+                continue
+            self.ensure(model)

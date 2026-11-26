@@ -11,3 +11,7 @@ class ImageMissing(LookupError):
 
 class ModelUnavailable(LookupError):
     pass
+
+
+class ModelProcessError(RuntimeError):
+    pass

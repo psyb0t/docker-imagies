@@ -1,13 +1,40 @@
 from __future__ import annotations
 
+import os
 from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from imagies import models
+from imagies.model_process import ModelProcess
 from imagies.server import build_app
-from imagies.vision import Vision
+
+
+class FakeVisionWorker:
+    def __init__(self):
+        self.models = set()
+
+    async def execute(self, operation, paths, value):
+        assert all(path.is_file() for path in paths)
+        if operation == "match":
+            self.models.add("clip")
+            return [
+                {"matches": [{"query": value[0], "score": 0.7}], "pid": os.getpid()} for _ in paths
+            ]
+        assert value == pytest.approx(0.45)
+        self.models.add("yolo")
+        return [
+            {"detections": [{"label": "test", "confidence": 0.8, "box": [0, 0, 0.5, 0.5]}]}
+            for _ in paths
+        ]
+
+    def resident(self):
+        return sorted(self.models)
+
+    async def close(self):
+        return None
 
 
 def png(color: str = "red") -> bytes:
@@ -59,6 +86,7 @@ def test_auth_and_bad_input(tmp_path, monkeypatch) -> None:
         assert client.get("/healthz").is_success
         assert client.get("/v1/engines").status_code == 401
         assert client.post("/v1/mcp").status_code == 401
+        assert client.post("/v1/unload").status_code == 401
         auth = {"Authorization": "Bearer test-token"}
         assert client.post("/v1/images", content=b"bad", headers=auth).status_code == 400
         assert client.post("/v1/images", content=b"x" * 1025, headers=auth).status_code == 413
@@ -85,27 +113,16 @@ def test_auth_and_bad_input(tmp_path, monkeypatch) -> None:
         )
 
 
-def test_mcp_and_analysis_contract(tmp_path, monkeypatch) -> None:
-    def match(_self, paths, queries):
-        assert all(path.is_file() for path in paths)
-        return [{"matches": [{"query": queries[0], "score": 0.7}]} for _ in paths]
-
-    def detect(_self, paths, confidence):
-        assert confidence == pytest.approx(0.45)
-        return [
-            {"detections": [{"label": "test", "confidence": 0.8, "box": [0, 0, 0.5, 0.5]}]}
-            for _ in paths
-        ]
-
-    monkeypatch.setattr(Vision, "match", match)
-    monkeypatch.setattr(Vision, "detect", detect)
-    with TestClient(build_app(tmp_path), base_url="http://localhost") as client:
+def test_mcp_and_analysis_contract(tmp_path) -> None:
+    app = build_app(tmp_path, vision_worker=ModelProcess(FakeVisionWorker))
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/v1/unload").json() == {"unloaded": []}
         image_id = client.post("/v1/images", content=png()).json()["id"]
         payload = {"image_ids": [image_id], "queries": ["example"]}
-        assert (
-            client.post("/v1/images/match", json=payload).json()["images"][0]["image_id"]
-            == image_id
-        )
+        matched = client.post("/v1/images/match", json=payload).json()["images"][0]
+        assert matched["image_id"] == image_id
+        pid = matched["pid"]
+        assert pid != os.getpid()
         result = client.post(
             "/v1/images/detect", json={"image_ids": [image_id], "confidence": 0.45}
         )
@@ -122,3 +139,40 @@ def test_mcp_and_analysis_contract(tmp_path, monkeypatch) -> None:
         )
         assert reply.status_code == 200, reply.text
         assert reply.json()["result"]["structuredContent"]["images"][0]["image_id"] == image_id
+        assert client.post("/v1/unload").json() == {"unloaded": ["clip", "yolo"]}
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+        assert client.post("/v1/unload").json() == {"unloaded": []}
+        assert client.post("/v1/images/match", json=payload).json()["images"][0]["pid"] != pid
+
+
+@pytest.mark.parametrize("mode", ["startup", "on-demand"])
+def test_clip_download_timing_and_reuse(tmp_path, monkeypatch, mode) -> None:
+    monkeypatch.setenv("IMAGIES_MODEL_DOWNLOAD", mode)
+    monkeypatch.setattr(models, "_CLIP_FILES", ("config.json",))
+    fetched = []
+
+    def fetch(url, **_options):
+        fetched.append(url)
+        return BytesIO(b"{}")
+
+    monkeypatch.setattr(models, "urlopen", fetch)
+    app = build_app(tmp_path, vision_worker=ModelProcess(FakeVisionWorker))
+    with TestClient(app, base_url="http://localhost") as client:
+        assert len(fetched) == (1 if mode == "startup" else 0)
+        image_id = client.post("/v1/images", content=png()).json()["id"]
+        payload = {"image_ids": [image_id], "queries": ["example"]}
+        reply = client.post(
+            "/v1/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "match", "arguments": {"spec": payload}},
+            },
+            headers={"Accept": "application/json, text/event-stream"},
+        )
+        assert reply.json()["result"]["structuredContent"]["images"][0]["image_id"] == image_id
+        assert len(fetched) == 1
+        assert client.post("/v1/images/match", json=payload).is_success
+        assert len(fetched) == 1

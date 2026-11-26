@@ -17,7 +17,7 @@ curl --fail-with-body http://localhost:8000/v1/images \
   --data-binary @example.png
 ```
 
-Copy the returned `id`. You can download the staged image from `GET /v1/images/{image_id}` and delete it with `DELETE /v1/images/{image_id}`. Edit or group staged images at `/v1/images/transform` and `/v1/images/montage`. Check `GET /v1/engines` before using CLIP matching or YOLO detection. A missing image or model returns HTTP 404.
+Copy the returned `id`. You can download the staged image from `GET /v1/images/{image_id}` and delete it with `DELETE /v1/images/{image_id}`. Edit or group staged images at `/v1/images/transform` and `/v1/images/montage`. Check `GET /v1/engines` before using CLIP matching or YOLO detection. A missing image or model returns HTTP 404. A failed weight download returns HTTP 503 when [automatic downloads](deployment.md#model-files) are enabled.
 
 ## Resize a staged image
 
@@ -57,3 +57,7 @@ curl --fail-with-body -X PUT http://localhost:8000/v1/generation/engines/sdcpp/m
 ```
 
 Unknown engine IDs return 404. Deployments that use the old `/sdcpp/v1/` paths can keep using them during migration.
+
+## Unload all models
+
+`POST /v1/unload` stops resident generation and vision model processes. The response lists the released generation model IDs and vision engine names in `unloaded`. An idle service returns an empty list. A model load or active inference returns HTTP 409. The next request starts its worker again.

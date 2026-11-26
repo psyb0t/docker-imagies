@@ -5,8 +5,8 @@ import base64
 import binascii
 import logging
 import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Literal
@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
+from imagies.generation_models import GenerationDownloads
 from imagies.images import MAX_UPLOAD_BYTES, Asset, Store
 
 _log = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ _WORKER_STOP_TIMEOUT = 25.0
 _MAX_REQUEST_BYTES = 10 * 1024 * 1024
 _GENERATE = "/v1/images/generations"
 _WORKER_CONTROL = "/sdcpp/v1"
+_LOAD = f"{_WORKER_CONTROL}/load"
+_REGISTRY = "/etc/sdcpp/models.json"
 _ENGINES = "/v1/generation/engines"
 _ENGINE = f"{_ENGINES}/{{engine}}"
 _SDCPP = "sdcpp"
@@ -70,6 +73,11 @@ class _WorkerState(BaseModel):
     idle_timeout: int
 
 
+class _WorkerUnload(BaseModel):
+    unloaded: Literal[True]
+    model: str
+
+
 class GenerationRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
     model: str = Field(min_length=1, max_length=160, description="Model ID from GET /v1/models.")
@@ -90,6 +98,19 @@ class Generation:
         self._transport = transport
         self._client: httpx.AsyncClient | None = None
         self._process: asyncio.subprocess.Process | None = None
+        self._downloads: GenerationDownloads | None = None
+
+    def enable_downloads(self, directory: Path) -> None:
+        self._downloads = GenerationDownloads(
+            directory,
+            Path(os.environ.get("MODELS_FILE", _REGISTRY)),
+            self._model_prefix,
+            os.environ.get("HF_TOKEN", ""),
+        )
+
+    async def prefetch(self) -> None:
+        if self._downloads is not None:
+            await run_in_threadpool(self._downloads.prefetch)
 
     @property
     def ready(self) -> bool:
@@ -147,6 +168,16 @@ class Generation:
             raise HTTPException(
                 HTTPStatus.SERVICE_UNAVAILABLE, "image generation worker is offline"
             )
+        if self._downloads is not None and (options is not None or endpoint == _LOAD):
+            try:
+                await run_in_threadpool(
+                    self._downloads.ensure, options.model if options is not None else model_key
+                )
+            except (OSError, ValueError) as exc:
+                _log.warning("generation weights unavailable", extra={"reason": str(exc)})
+                raise HTTPException(
+                    HTTPStatus.SERVICE_UNAVAILABLE, "generation weights are unavailable"
+                ) from exc
         try:
             params = {}
             if model_key is not None:
@@ -191,7 +222,20 @@ class Generation:
         )
 
     async def load_model(self, model: str) -> httpx.Response:
-        return await self.request("POST", f"{_WORKER_CONTROL}/load", model_key=model)
+        return await self.request("POST", _LOAD, model_key=model)
+
+    async def unload_resident(self) -> list[str]:
+        upstream = await self.request("POST", f"{_WORKER_CONTROL}/unload", fail_if_busy=True)
+        _control_result(upstream)
+        try:
+            if upstream.json().get("already_unloaded") is True:
+                return []
+            result = _WorkerUnload.model_validate_json(upstream.content)
+        except (AttributeError, ValueError) as exc:
+            raise HTTPException(
+                HTTPStatus.BAD_GATEWAY, "generation worker returned an invalid unload result"
+            ) from exc
+        return [self._model_prefix + result.model]
 
 
 def _relay(upstream: httpx.Response) -> Response:
@@ -219,7 +263,13 @@ def _control_result(upstream: httpx.Response) -> Response:
     )
 
 
-def attach_generation(app: FastAPI, mcp: FastMCP, store: Store, backend: Generation) -> None:
+def attach_generation(
+    app: FastAPI,
+    mcp: FastMCP,
+    store: Store,
+    backend: Generation,
+    model_operation: Callable[[], AbstractAsyncContextManager[None]],
+) -> None:
     @app.get(
         "/v1/models", tags=_GENERATION_TAGS, description="List local image generation model IDs."
     )
@@ -255,7 +305,8 @@ def attach_generation(app: FastAPI, mcp: FastMCP, store: Store, backend: Generat
     )
     async def select_model(engine: EngineID, selection: ModelSelection) -> Response:
         _require_engine(engine)
-        return _control_result(await backend.load_model(selection.model))
+        async with model_operation():
+            return _control_result(await backend.load_model(selection.model))
 
     @app.delete(
         f"{_ENGINE}/model",
@@ -269,8 +320,9 @@ def attach_generation(app: FastAPI, mcp: FastMCP, store: Store, backend: Generat
     )
     async def unload_model(engine: EngineID) -> Response:
         _require_engine(engine)
-        upstream = await backend.request("POST", f"{_WORKER_CONTROL}/unload", fail_if_busy=True)
-        return _control_result(upstream)
+        async with model_operation():
+            upstream = await backend.request("POST", f"{_WORKER_CONTROL}/unload", fail_if_busy=True)
+            return _control_result(upstream)
 
     @app.delete(
         f"{_ENGINE}/active",
@@ -287,13 +339,15 @@ def attach_generation(app: FastAPI, mcp: FastMCP, store: Store, backend: Generat
     async def status() -> Response:
         return _relay(await backend.request("GET", f"{_WORKER_CONTROL}/status"))
 
-    @app.post(f"{_WORKER_CONTROL}/load", include_in_schema=False, deprecated=True)
+    @app.post(_LOAD, include_in_schema=False, deprecated=True)
     async def load(model: str | None = None) -> Response:
-        return _relay(await backend.request("POST", f"{_WORKER_CONTROL}/load", model_key=model))
+        async with model_operation():
+            return _relay(await backend.request("POST", _LOAD, model_key=model))
 
     @app.post(f"{_WORKER_CONTROL}/unload", include_in_schema=False, deprecated=True)
     async def unload() -> Response:
-        return _relay(await backend.request("POST", f"{_WORKER_CONTROL}/unload"))
+        async with model_operation():
+            return _relay(await backend.request("POST", f"{_WORKER_CONTROL}/unload"))
 
     @app.post(f"{_WORKER_CONTROL}/cancel", include_in_schema=False, deprecated=True)
     async def cancel() -> Response:
@@ -322,7 +376,8 @@ def attach_generation(app: FastAPI, mcp: FastMCP, store: Store, backend: Generat
             options = GenerationRequest.model_validate_json(body)
         except ValidationError as exc:
             raise HTTPException(HTTPStatus.BAD_REQUEST, "invalid image generation request") from exc
-        return _relay(await backend.request("POST", _GENERATE, options=options))
+        async with model_operation():
+            return _relay(await backend.request("POST", _GENERATE, options=options))
 
     @mcp.tool()
     async def generate(
@@ -337,7 +392,8 @@ def attach_generation(app: FastAPI, mcp: FastMCP, store: Store, backend: Generat
         options = GenerationRequest(
             model=model, prompt=prompt, size=size, n=1, response_format="b64_json"
         )
-        upstream = await backend.request("POST", _GENERATE, options=options)
+        async with model_operation():
+            upstream = await backend.request("POST", _GENERATE, options=options)
         if not upstream.is_success:
             raise ValueError(f"image generation failed (HTTP {upstream.status_code})")
         try:
