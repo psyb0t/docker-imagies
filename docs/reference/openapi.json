@@ -61,6 +61,80 @@
         "title": "Detect",
         "type": "object"
       },
+      "EngineState": {
+        "properties": {
+          "generating": {
+            "title": "Generating",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Engine ID used in generation control routes.",
+            "examples": [
+              "sdcpp"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "idle_timeout_seconds": {
+            "title": "Idle Timeout Seconds",
+            "type": "integer"
+          },
+          "loaded": {
+            "title": "Loaded",
+            "type": "boolean"
+          },
+          "loading": {
+            "title": "Loading",
+            "type": "boolean"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "resident_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resident Model"
+          }
+        },
+        "required": [
+          "id",
+          "loaded",
+          "loading",
+          "generating",
+          "resident_model",
+          "models",
+          "idle_timeout_seconds"
+        ],
+        "title": "EngineState",
+        "type": "object"
+      },
+      "GenerationEngine": {
+        "properties": {
+          "id": {
+            "description": "Engine ID used in generation control routes.",
+            "examples": [
+              "sdcpp"
+            ],
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "GenerationEngine",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -103,6 +177,27 @@
           "queries"
         ],
         "title": "Match",
+        "type": "object"
+      },
+      "ModelSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "description": "Generation model ID from GET /v1/models.",
+            "examples": [
+              "imagies-sd-turbo"
+            ],
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^\\S+$",
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "title": "ModelSelection",
         "type": "object"
       },
       "Montage": {
@@ -298,102 +393,6 @@
         "summary": "Health"
       }
     },
-    "/sdcpp/v1/cancel": {
-      "post": {
-        "description": "Cancel the current generation.",
-        "operationId": "cancel_sdcpp_v1_cancel_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Cancel"
-      }
-    },
-    "/sdcpp/v1/load": {
-      "post": {
-        "description": "Load a model by short key.",
-        "operationId": "load_sdcpp_v1_load_post",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "model",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Model"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Load"
-      }
-    },
-    "/sdcpp/v1/status": {
-      "get": {
-        "description": "Read the generation worker and model state.",
-        "operationId": "status_sdcpp_v1_status_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Status"
-      }
-    },
-    "/sdcpp/v1/unload": {
-      "post": {
-        "description": "Unload the idle model and free memory.",
-        "operationId": "unload_sdcpp_v1_unload_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Unload"
-      }
-    },
     "/v1/engines": {
       "get": {
         "description": "List models with installed dependencies and local weights.",
@@ -418,6 +417,232 @@
           }
         },
         "summary": "Engines"
+      }
+    },
+    "/v1/generation/engines": {
+      "get": {
+        "description": "List the configured image generation engines.",
+        "operationId": "engines_v1_generation_engines_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GenerationEngine"
+                  },
+                  "title": "Response Engines V1 Generation Engines Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Engines",
+        "tags": [
+          "Generation"
+        ]
+      }
+    },
+    "/v1/generation/engines/{engine}": {
+      "get": {
+        "description": "Read the engine state and available model IDs.",
+        "operationId": "engine_state_v1_generation_engines__engine__get",
+        "parameters": [
+          {
+            "description": "ID from GET /v1/generation/engines.",
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "description": "ID from GET /v1/generation/engines.",
+              "examples": [
+                "sdcpp"
+              ],
+              "title": "Engine",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Unknown generation engine."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Engine State",
+        "tags": [
+          "Generation"
+        ]
+      }
+    },
+    "/v1/generation/engines/{engine}/active": {
+      "delete": {
+        "description": "Cancel the engine's active generation. Succeeds if it is already idle.",
+        "operationId": "cancel_generation_v1_generation_engines__engine__active_delete",
+        "parameters": [
+          {
+            "description": "ID from GET /v1/generation/engines.",
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "description": "ID from GET /v1/generation/engines.",
+              "examples": [
+                "sdcpp"
+              ],
+              "title": "Engine",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Unknown generation engine."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Generation",
+        "tags": [
+          "Generation"
+        ]
+      }
+    },
+    "/v1/generation/engines/{engine}/model": {
+      "delete": {
+        "description": "Unload the resident model. Returns 409 while the engine is busy.",
+        "operationId": "unload_model_v1_generation_engines__engine__model_delete",
+        "parameters": [
+          {
+            "description": "ID from GET /v1/generation/engines.",
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "description": "ID from GET /v1/generation/engines.",
+              "examples": [
+                "sdcpp"
+              ],
+              "title": "Engine",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Unknown generation engine."
+          },
+          "409": {
+            "description": "The engine is loading or generating."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unload Model",
+        "tags": [
+          "Generation"
+        ]
+      },
+      "put": {
+        "description": "Load the selected model and wait until the engine is ready.",
+        "operationId": "select_model_v1_generation_engines__engine__model_put",
+        "parameters": [
+          {
+            "description": "ID from GET /v1/generation/engines.",
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "description": "ID from GET /v1/generation/engines.",
+              "examples": [
+                "sdcpp"
+              ],
+              "title": "Engine",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "The engine does not serve the requested model."
+          },
+          "404": {
+            "description": "Unknown generation engine."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The engine could not load the model."
+          }
+        },
+        "summary": "Select Model",
+        "tags": [
+          "Generation"
+        ]
       }
     },
     "/v1/images": {
@@ -594,7 +819,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Generate Image"
+        "summary": "Generate Image",
+        "tags": [
+          "Generation"
+        ]
       }
     },
     "/v1/images/match": {
@@ -807,7 +1035,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Models"
+        "summary": "Models",
+        "tags": [
+          "Generation"
+        ]
       }
     }
   }

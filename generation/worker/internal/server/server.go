@@ -179,19 +179,27 @@ func (s *Server) CancelGenerate() bool {
 // Unload stops sd-server without respawning.
 // No-ops during in-progress loads or generations. Use POST /sdcpp/v1/cancel
 // to abort a running generation.
-func (s *Server) Unload() (model string, wasLoaded bool) {
+func (s *Server) Unload() (model string, wasLoaded, busy bool) {
+	if !s.loadMu.TryLock() {
+		return "", false, true
+	}
+	defer s.loadMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.loading || s.generating || !s.loaded {
-		return s.currentModel, false
+	if s.loading || s.generating {
+		return s.currentModel, false, true
+	}
+	if !s.loaded {
+		return s.currentModel, false, false
 	}
 
 	s.process.Stop()
 	s.loaded = false
 	s.stopIdleTimer()
 
-	return s.currentModel, true
+	return s.currentModel, true, false
 }
 
 // Status returns the current server state.

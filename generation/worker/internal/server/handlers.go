@@ -81,13 +81,15 @@ func (h *LoadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		modelKey = h.srv.Registry().DefaultModel
 	}
 
-	if !h.srv.Registry().Has(modelKey) {
+	model, err := h.srv.resolveModelKey(modelKey)
+	if err != nil {
 		aichteeteapee.WriteJSON(w, http.StatusBadRequest, map[string]any{
 			"error": fmt.Sprintf("unknown model %q; available: %s",
 				modelKey, strings.Join(h.srv.Registry().ModelNames(), ", ")),
 		})
 		return
 	}
+	modelKey = model
 
 	if h.srv.IsLoadedWith(modelKey) {
 		aichteeteapee.WriteJSON(w, http.StatusOK, map[string]any{
@@ -122,8 +124,14 @@ func NewUnloadHandler(srv *Server) *UnloadHandler {
 	return &UnloadHandler{srv: srv}
 }
 
-func (h *UnloadHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
-	model, wasLoaded := h.srv.Unload()
+func (h *UnloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	model, wasLoaded, busy := h.srv.Unload()
+	if busy && r.URL.Query().Get("fail_if_busy") == "true" {
+		aichteeteapee.WriteJSON(w, http.StatusConflict, map[string]any{
+			"error": "engine is loading or generating",
+		})
+		return
+	}
 	if !wasLoaded {
 		aichteeteapee.WriteJSON(w, http.StatusOK, map[string]any{
 			"already_unloaded": true,
@@ -205,7 +213,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modelKey, err := h.resolveModelKey(req.Model)
+	modelKey, err := h.srv.resolveModelKey(req.Model)
 	if err != nil {
 		logger.Warn("unknown model", "model", req.Model)
 		aichteeteapee.WriteJSON(w, http.StatusBadRequest, map[string]any{
@@ -244,7 +252,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Warn("rejected, generation already in progress", "model", modelKey)
 		aichteeteapee.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": map[string]any{
-				"message": "another generation is already in progress, try again later or POST /sdcpp/v1/cancel",
+				"message": "another generation is already in progress, try again later or cancel it",
 			},
 		})
 		return
@@ -258,19 +266,19 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.proxy.ServeHTTP(w, r)
 }
 
-func (h *ProxyHandler) resolveModelKey(model string) (string, error) {
+func (s *Server) resolveModelKey(model string) (string, error) {
 	// LiteLLM sends "openai/local-sdcpp-cuda-flux-schnell"
 	model = strings.TrimPrefix(model, "openai/")
 
-	prefix := h.srv.ModelPrefix()
+	prefix := s.ModelPrefix()
 	if prefix != "" && strings.HasPrefix(model, prefix) {
 		key := strings.TrimPrefix(model, prefix)
-		if h.srv.Registry().Has(key) {
+		if s.Registry().Has(key) {
 			return key, nil
 		}
 	}
 
-	if h.srv.Registry().Has(model) {
+	if s.Registry().Has(model) {
 		return model, nil
 	}
 

@@ -4,14 +4,16 @@ import asyncio
 import base64
 import binascii
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from http import HTTPStatus
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Path as PathParam
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
@@ -25,7 +27,47 @@ _WORKER_START_TIMEOUT = 12.0
 _WORKER_STOP_TIMEOUT = 25.0
 _MAX_REQUEST_BYTES = 10 * 1024 * 1024
 _GENERATE = "/v1/images/generations"
-_MODEL_CONTROL = "/sdcpp/v1"
+_WORKER_CONTROL = "/sdcpp/v1"
+_ENGINES = "/v1/generation/engines"
+_ENGINE = f"{_ENGINES}/{{engine}}"
+_SDCPP = "sdcpp"
+_GENERATION_TAGS = ["Generation"]
+EngineID = Annotated[
+    str, PathParam(description="ID from GET /v1/generation/engines.", examples=[_SDCPP])
+]
+
+
+class ModelSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^\S+$",
+        description="Generation model ID from GET /v1/models.",
+        examples=["imagies-sd-turbo"],
+    )
+
+
+class GenerationEngine(BaseModel):
+    id: str = Field(description="Engine ID used in generation control routes.", examples=[_SDCPP])
+
+
+class EngineState(GenerationEngine):
+    loaded: bool
+    loading: bool
+    generating: bool
+    resident_model: str | None
+    models: list[str]
+    idle_timeout_seconds: int
+
+
+class _WorkerState(BaseModel):
+    loaded: bool
+    loading: bool
+    generating: bool
+    current_model: str
+    models: list[str]
+    idle_timeout: int
 
 
 class GenerationRequest(BaseModel):
@@ -44,6 +86,7 @@ class Generation:
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._executable = executable
+        self._model_prefix = os.environ.get("MODEL_PREFIX", "imagies-")
         self._transport = transport
         self._client: httpx.AsyncClient | None = None
         self._process: asyncio.subprocess.Process | None = None
@@ -97,6 +140,7 @@ class Generation:
         *,
         options: GenerationRequest | None = None,
         model_key: str | None = None,
+        fail_if_busy: bool = False,
     ) -> httpx.Response:
         client = self._client
         if client is None or not self.ready:
@@ -104,10 +148,15 @@ class Generation:
                 HTTPStatus.SERVICE_UNAVAILABLE, "image generation worker is offline"
             )
         try:
+            params = {}
+            if model_key is not None:
+                params["model"] = model_key
+            if fail_if_busy:
+                params["fail_if_busy"] = "true"
             return await client.request(
                 method,
                 endpoint,
-                params={"model": model_key} if model_key is not None else None,
+                params=params,
                 json=options.model_dump(exclude_none=True, exclude_unset=True) if options else None,
             )
         except httpx.TimeoutException as exc:
@@ -122,6 +171,28 @@ class Generation:
                 HTTPStatus.BAD_GATEWAY, "image generation worker is unreachable"
             ) from exc
 
+    async def engine_state(self) -> EngineState:
+        upstream = await self.request("GET", f"{_WORKER_CONTROL}/status")
+        try:
+            upstream.raise_for_status()
+            state = _WorkerState.model_validate_json(upstream.content)
+        except (httpx.HTTPStatusError, ValidationError) as exc:
+            raise HTTPException(
+                HTTPStatus.BAD_GATEWAY, "image generation worker returned an invalid status"
+            ) from exc
+        return EngineState(
+            id=_SDCPP,
+            loaded=state.loaded,
+            loading=state.loading,
+            generating=state.generating,
+            resident_model=self._model_prefix + state.current_model if state.loaded else None,
+            models=[self._model_prefix + key for key in state.models],
+            idle_timeout_seconds=state.idle_timeout,
+        )
+
+    async def load_model(self, model: str) -> httpx.Response:
+        return await self.request("POST", f"{_WORKER_CONTROL}/load", model_key=model)
+
 
 def _relay(upstream: httpx.Response) -> Response:
     return Response(
@@ -131,29 +202,106 @@ def _relay(upstream: httpx.Response) -> Response:
     )
 
 
+def _require_engine(engine: str) -> None:
+    if engine != _SDCPP:
+        raise HTTPException(HTTPStatus.NOT_FOUND, "unknown generation engine")
+
+
+def _control_result(upstream: httpx.Response) -> Response:
+    if upstream.is_success:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+    if upstream.status_code == HTTPStatus.BAD_REQUEST:
+        raise HTTPException(HTTPStatus.BAD_REQUEST, "unknown model for this generation engine")
+    if upstream.status_code == HTTPStatus.CONFLICT:
+        raise HTTPException(HTTPStatus.CONFLICT, "generation engine is busy")
+    raise HTTPException(
+        HTTPStatus.SERVICE_UNAVAILABLE, "generation engine could not complete the operation"
+    )
+
+
 def attach_generation(app: FastAPI, mcp: FastMCP, store: Store, backend: Generation) -> None:
-    @app.get("/v1/models", description="List local image generation model IDs.")
+    @app.get(
+        "/v1/models", tags=_GENERATION_TAGS, description="List local image generation model IDs."
+    )
     async def models() -> Response:
         return _relay(await backend.request("GET", "/v1/models"))
 
-    @app.get(f"{_MODEL_CONTROL}/status", description="Read the generation worker and model state.")
+    @app.get(
+        _ENGINES, tags=_GENERATION_TAGS, description="List the configured image generation engines."
+    )
+    async def engines() -> list[GenerationEngine]:
+        return [GenerationEngine(id=_SDCPP)]
+
+    @app.get(
+        _ENGINE,
+        tags=_GENERATION_TAGS,
+        description="Read the engine state and available model IDs.",
+        responses={404: {"description": "Unknown generation engine."}},
+    )
+    async def engine_state(engine: EngineID) -> EngineState:
+        _require_engine(engine)
+        return await backend.engine_state()
+
+    @app.put(
+        f"{_ENGINE}/model",
+        tags=_GENERATION_TAGS,
+        status_code=HTTPStatus.NO_CONTENT,
+        description="Load the selected model and wait until the engine is ready.",
+        responses={
+            400: {"description": "The engine does not serve the requested model."},
+            404: {"description": "Unknown generation engine."},
+            503: {"description": "The engine could not load the model."},
+        },
+    )
+    async def select_model(engine: EngineID, selection: ModelSelection) -> Response:
+        _require_engine(engine)
+        return _control_result(await backend.load_model(selection.model))
+
+    @app.delete(
+        f"{_ENGINE}/model",
+        tags=_GENERATION_TAGS,
+        status_code=HTTPStatus.NO_CONTENT,
+        description="Unload the resident model. Returns 409 while the engine is busy.",
+        responses={
+            404: {"description": "Unknown generation engine."},
+            409: {"description": "The engine is loading or generating."},
+        },
+    )
+    async def unload_model(engine: EngineID) -> Response:
+        _require_engine(engine)
+        upstream = await backend.request("POST", f"{_WORKER_CONTROL}/unload", fail_if_busy=True)
+        return _control_result(upstream)
+
+    @app.delete(
+        f"{_ENGINE}/active",
+        tags=_GENERATION_TAGS,
+        status_code=HTTPStatus.NO_CONTENT,
+        description="Cancel the engine's active generation. Succeeds if it is already idle.",
+        responses={404: {"description": "Unknown generation engine."}},
+    )
+    async def cancel_generation(engine: EngineID) -> Response:
+        _require_engine(engine)
+        return _control_result(await backend.request("POST", f"{_WORKER_CONTROL}/cancel"))
+
+    @app.get(f"{_WORKER_CONTROL}/status", include_in_schema=False, deprecated=True)
     async def status() -> Response:
-        return _relay(await backend.request("GET", f"{_MODEL_CONTROL}/status"))
+        return _relay(await backend.request("GET", f"{_WORKER_CONTROL}/status"))
 
-    @app.post(f"{_MODEL_CONTROL}/load", description="Load a model by short key.")
+    @app.post(f"{_WORKER_CONTROL}/load", include_in_schema=False, deprecated=True)
     async def load(model: str | None = None) -> Response:
-        return _relay(await backend.request("POST", f"{_MODEL_CONTROL}/load", model_key=model))
+        return _relay(await backend.request("POST", f"{_WORKER_CONTROL}/load", model_key=model))
 
-    @app.post(f"{_MODEL_CONTROL}/unload", description="Unload the idle model and free memory.")
+    @app.post(f"{_WORKER_CONTROL}/unload", include_in_schema=False, deprecated=True)
     async def unload() -> Response:
-        return _relay(await backend.request("POST", f"{_MODEL_CONTROL}/unload"))
+        return _relay(await backend.request("POST", f"{_WORKER_CONTROL}/unload"))
 
-    @app.post(f"{_MODEL_CONTROL}/cancel", description="Cancel the current generation.")
+    @app.post(f"{_WORKER_CONTROL}/cancel", include_in_schema=False, deprecated=True)
     async def cancel() -> Response:
-        return _relay(await backend.request("POST", f"{_MODEL_CONTROL}/cancel"))
+        return _relay(await backend.request("POST", f"{_WORKER_CONTROL}/cancel"))
 
     @app.post(
         _GENERATE,
+        tags=_GENERATION_TAGS,
         description="Generate an image using the OpenAI-compatible image API.",
         openapi_extra={
             "requestBody": {

@@ -74,7 +74,7 @@ For NVIDIA, use the `:latest-generation-cuda` image and `generation-cuda` to ins
 
 The downloader writes regular GGUF and safetensors files to `/data/models/generation` and checks the hashes of new downloads. Set `IMAGIES_GENERATION_MODELS_DIR` to use existing weights. CPU and CUDA can share that directory. Only the downloader needs write access to it.
 
-`GET /v1/models` lists the model IDs. Pass one to `POST /v1/images/generations` with an OpenAI-compatible request. Model controls live at `/sdcpp/v1/status`, `/sdcpp/v1/load?model=sd-turbo`, `/sdcpp/v1/unload` and `/sdcpp/v1/cancel`. The MCP tool `generate` stages one result as an Imagies image ID.
+`GET /v1/models` lists the model IDs. Pass one to `POST /v1/images/generations` with an OpenAI-compatible request. Discover generation engines at `GET /v1/generation/engines` and use the [engine controls](https://psyb0t.github.io/docker-imagies/api/#manage-a-generation-engine) to load, unload, or cancel work on one engine. The MCP tool `generate` stages one result as an Imagies image ID.
 
 ## Agent integrations
 

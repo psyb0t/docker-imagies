@@ -38,3 +38,22 @@ curl --fail-with-body http://localhost:8000/v1/images/generations \
   -H 'Content-Type: application/json' \
   --data '{"model":"imagies-sd-turbo","prompt":"a yellow teapot on a wooden table","size":"256x256","response_format":"b64_json"}'
 ```
+
+## Manage a generation engine
+
+On a generation image, `GET /v1/generation/engines` lists engine IDs. The bundled `sdcpp` engine serves models such as SD Turbo and, in the CUDA image, FLUX.1 Schnell. Use the full model ID returned by `GET /v1/models` in both generation and model selection requests.
+
+| Method and path | Result |
+| --- | --- |
+| `GET /v1/generation/engines/{engine}` | Model inventory, resident model ID, loading and generation state, and idle timeout in seconds. |
+| `PUT /v1/generation/engines/{engine}/model` | Load or switch to the model in the JSON body. Returns 204 once the model is ready. |
+| `DELETE /v1/generation/engines/{engine}/model` | Release the resident model. Returns 409 while the engine is loading or generating. |
+| `DELETE /v1/generation/engines/{engine}/active` | Cancel the active generation. Returns 204 if the engine is already idle. |
+
+```sh
+curl --fail-with-body -X PUT http://localhost:8000/v1/generation/engines/sdcpp/model \
+  -H 'Content-Type: application/json' \
+  --data '{"model":"imagies-sd-turbo"}'
+```
+
+Unknown engine IDs return 404. Deployments that use the old `/sdcpp/v1/` paths can keep using them during migration.

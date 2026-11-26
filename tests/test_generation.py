@@ -83,7 +83,70 @@ def test_openai_routes_and_mcp(tmp_path) -> None:
 def test_generation_disabled_without_worker(tmp_path) -> None:
     with TestClient(build_app(tmp_path)) as client:
         assert "/v1/images/generations" not in client.get("/openapi.json").json()["paths"]
+        assert client.get("/v1/generation/engines").status_code == 404
         assert client.get("/healthz").status_code == 200
+
+
+def test_engine_controls_and_legacy_aliases(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("MODEL_PREFIX", "local-sdcpp-cuda-")
+    calls = []
+    model = "local-sdcpp-cuda-flux-schnell"
+
+    def worker(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path.endswith("/status"):
+            return httpx.Response(
+                200,
+                json={
+                    "loaded": True,
+                    "loading": False,
+                    "generating": True,
+                    "current_model": "flux-schnell",
+                    "current_model_args": ["--model", "/models/flux.gguf"],
+                    "process_pid": 42,
+                    "models": ["flux-schnell"],
+                    "idle_timeout": 300,
+                },
+            )
+        if request.url.params.get("fail_if_busy") == "true":
+            return httpx.Response(409, json={"error": "engine is loading or generating"})
+        if request.url.params.get("model") == "missing":
+            return httpx.Response(400, json={"error": "model is unavailable"})
+        return httpx.Response(200, json={"ok": True})
+
+    backend = Generation(transport=httpx.MockTransport(worker))
+    root = "/v1/generation/engines"
+    engine = root + "/sdcpp"
+    with TestClient(build_app(tmp_path, "test-token", backend)) as client:
+        assert client.get(root).status_code == 401
+        client.headers["Authorization"] = "Bearer test-token"
+        assert client.get(root).json() == [{"id": "sdcpp"}]
+        assert client.get(root + "/missing").status_code == 404
+        assert client.put(engine + "/model", json={"model": " "}).status_code == 422
+        assert not calls
+        assert client.get(engine).json() == {
+            "id": "sdcpp",
+            "loaded": True,
+            "loading": False,
+            "generating": True,
+            "resident_model": model,
+            "models": [model],
+            "idle_timeout_seconds": 300,
+        }
+        assert client.put(engine + "/model", json={"model": model}).status_code == 204
+        assert calls[-1].method == "POST"
+        assert calls[-1].url.path == "/sdcpp/v1/load"
+        assert calls[-1].url.params["model"] == model
+        missing = client.put(engine + "/model", json={"model": "missing"})
+        assert missing.status_code == 400
+        assert missing.json() == {"detail": "unknown model for this generation engine"}
+        assert client.delete(engine + "/model").status_code == 409
+        assert client.post("/sdcpp/v1/unload").json() == {"ok": True}
+        assert client.delete(engine + "/active").status_code == 204
+        assert calls[-1].url.path == "/sdcpp/v1/cancel"
+        paths = client.get("/openapi.json").json()["paths"]
+        assert "put" in paths[root + "/{engine}/model"]
+        assert all(not path.startswith("/sdcpp/") for path in paths)
 
 
 def test_download_integrity_and_existing_weight(tmp_path) -> None:
