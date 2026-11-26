@@ -1,4 +1,5 @@
-name: pipeline
+# Separate the two-image pipeline from in-flight builds of the old matrix.
+name: Imagies pipeline
 
 on:
   push:
@@ -35,9 +36,7 @@ jobs:
       build_targets: >-
         [
           {"file":"Dockerfile","tag_suffix":""},
-          {"file":"Dockerfile","tag_suffix":"-cuda","build_args":"ACCELERATOR=cuda"},
-          {"file":"Dockerfile.generation","tag_suffix":"-generation"},
-          {"file":"Dockerfile.generation","tag_suffix":"-generation-cuda","build_args":"ACCELERATOR=cuda"}
+          {"file":"Dockerfile","tag_suffix":"-cuda","build_args":"ACCELERATOR=cuda"}
         ]
       push_sha_tag: true
       scan_severity: high
@@ -65,9 +64,7 @@ jobs:
       build_targets: >-
         [
           {"file":"Dockerfile","tag_suffix":""},
-          {"file":"Dockerfile","tag_suffix":"-cuda","build_args":"ACCELERATOR=cuda"},
-          {"file":"Dockerfile.generation","tag_suffix":"-generation"},
-          {"file":"Dockerfile.generation","tag_suffix":"-generation-cuda","build_args":"ACCELERATOR=cuda"}
+          {"file":"Dockerfile","tag_suffix":"-cuda","build_args":"ACCELERATOR=cuda"}
         ]
       promote_on_tag: true
       create_release: false

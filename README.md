@@ -62,17 +62,17 @@ The standard and NVIDIA vision images get PyTorch from Torchbase. For CLIP on NV
 Imagies has CPU and NVIDIA builds with stable-diffusion.cpp. The CPU image supports SD Turbo and SDXL Turbo. The CUDA image also supports SDXL Lightning, FLUX.1 Schnell and Juggernaut XI. Imagies loads one generation model at a time. `IDLE_TIMEOUT` defaults to `5m` and `LOAD_TIMEOUT` to `10m`.
 
 ```sh
-docker run --rm -v imagies:/data psyb0t/imagies:latest-generation \
+docker run --rm -v imagies:/data psyb0t/imagies:latest \
   python -m imagies.models generation-cpu
 docker run --rm --init --cap-drop=ALL --security-opt=no-new-privileges:true \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=256m --memory=12g --cpus=4 \
   --pids-limit=512 -p 127.0.0.1:8000:8000 -v imagies:/data \
-  psyb0t/imagies:latest-generation
+  psyb0t/imagies:latest
 ```
 
-For NVIDIA, use the `:latest-generation-cuda` image and `generation-cuda` to install its models. Pass `--gpus all` to run CLIP matching and image generation on CUDA. Provide `HF_TOKEN` to the downloader for missing gated FLUX and Juggernaut files after accepting their terms. Installed weights work offline.
+For NVIDIA, use the `:latest-cuda` image and `generation-cuda` to install its models. Pass `--gpus all` to run CLIP matching and image generation on CUDA. Provide `HF_TOKEN` to the downloader for missing gated FLUX and Juggernaut files after accepting their terms. Installed weights work offline.
 
-The downloader writes regular GGUF and safetensors files to `/data/models/generation` and checks the hashes of new downloads. Set `IMAGIES_GENERATION_MODELS_DIR` to use existing weights. CPU and CUDA can share that directory. Only the downloader needs write access to it.
+The downloader writes regular GGUF and safetensors files to `/data/models/generation` and checks the hashes of new downloads. To reuse weights from your host, bind mount their directory at `/data/models/generation`. CPU and CUDA can share the same mount. Only the downloader needs write access to it.
 
 `GET /v1/models` lists the model IDs. Pass one to `POST /v1/images/generations` with an OpenAI-compatible request. Discover generation engines at `GET /v1/generation/engines` and use the [engine controls](https://psyb0t.github.io/docker-imagies/api/#manage-a-generation-engine) to load, unload, or cancel work on one engine. The MCP tool `generate` stages one result as an Imagies image ID.
 
@@ -86,9 +86,9 @@ The [Imagies docs](https://psyb0t.github.io/docker-imagies/) cover Docker images
 
 ## Development
 
-Run `make check` for lint and tests and `make docs-build` to build the docs. The [deployment guide](https://psyb0t.github.io/docker-imagies/deployment/) lists the image build targets, including `EDITING_ONLY=1` for editing without CLIP and YOLO.
+Run `make check` for lint and tests and `make docs-build` to build the docs. Run `make build` for CPU or `make build-cuda` for NVIDIA.
 
-Set `CUDA_ARCHITECTURES` to target a specific compute capability when building locally. For an RTX A5000, run `make build-generation-cuda CUDA_ARCHITECTURES=86`.
+Set `CUDA_ARCHITECTURES` to target a specific compute capability when building locally. For an RTX A5000, run `make build-cuda CUDA_ARCHITECTURES=86`.
 
 ## Sponsor
 

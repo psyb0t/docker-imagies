@@ -30,7 +30,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := reg.ResolveModelRoot(cfg.ModelRoot); err != nil {
+	if err := reg.ResolveModelRoot(); err != nil {
 		slog.Error("invalid model paths", "error", err)
 		os.Exit(1)
 	}

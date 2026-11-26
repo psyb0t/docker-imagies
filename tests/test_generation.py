@@ -62,9 +62,26 @@ def test_openai_routes_and_mcp(tmp_path) -> None:
         previous = len(calls)
         bad = client.post("/v1/images/generations", json={**args, "n": "1"}, headers=headers)
         assert bad.status_code == 400 and len(calls) == previous
+        mcp_headers = {**headers, "Accept": "application/json, text/event-stream"}
+        listing = client.post(
+            "/v1/mcp",
+            headers=mcp_headers,
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        )
+        assert listing.status_code == 200, listing.text
+        tools = {item["name"]: item for item in listing.json()["result"]["tools"]}
+        assert set(tools) == {"transform", "montage", "match", "detect", "generate"}
+        for name in ("transform", "montage", "match", "detect"):
+            assert tools[name]["description"].strip()
+            assert tools[name]["inputSchema"]["required"] == ["spec"]
+        generate = tools["generate"]
+        assert "GET /v1/images/{image_id}" in generate["description"]
+        assert set(generate["inputSchema"]["required"]) == {"model", "prompt"}
+        for name in ("model", "prompt", "size"):
+            assert generate["inputSchema"]["properties"][name]["description"].strip()
         tool = client.post(
             "/v1/mcp",
-            headers={**headers, "Accept": "application/json, text/event-stream"},
+            headers=mcp_headers,
             json={
                 "jsonrpc": "2.0",
                 "id": 1,

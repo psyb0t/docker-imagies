@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from urllib.request import urlopen
 
+from imagies.constants import GENERATION_MODELS_DIR, MODELS_DIR
 from imagies.generation_models import download_generation
 
 _CLIP_REVISION = "bf8895cff1da285aa497db31204d14464adcaa7c"
@@ -58,18 +59,15 @@ def download_clip(models: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download a model as regular local files.")
     parser.add_argument("model", choices=["clip", "generation-cpu", "generation-cuda"])
-    parser.add_argument(
-        "--data-dir", type=Path, default=Path(os.environ.get("IMAGIES_DATA_DIR", "/data"))
-    )
     options = parser.parse_args()
     if options.model == "clip":
-        print(download_clip(options.data_dir / "models"))
+        print(download_clip(MODELS_DIR))
         return
-    configured = os.environ.get("IMAGIES_GENERATION_MODELS_DIR")
-    directory = Path(configured) if configured else options.data_dir / "models" / "generation"
     print(
         download_generation(
-            directory, cuda=options.model == "generation-cuda", token=os.environ.get("HF_TOKEN", "")
+            GENERATION_MODELS_DIR,
+            cuda=options.model == "generation-cuda",
+            token=os.environ.get("HF_TOKEN", ""),
         )
     )
 

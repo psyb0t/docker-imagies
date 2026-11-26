@@ -5,14 +5,12 @@ description: Choose an Imagies Docker image, install local model weights, and co
 
 # Deployment
 
-The four builds target Linux x86-64. An NVIDIA build needs a compatible GPU and the NVIDIA Container Toolkit.
+Both images target Linux x86-64 and include editing, vision and image generation. An NVIDIA build needs a compatible GPU and the NVIDIA Container Toolkit.
 
 | Image tag | Build command | What it runs |
 | --- | --- | --- |
-| `latest` | `make build` | Editing, CPU CLIP and CPU YOLO |
-| `latest-cuda` | `make build-cuda` | Editing, CUDA CLIP and CPU YOLO |
-| `latest-generation` | `make build-generation` | Standard vision and CPU Stable Diffusion |
-| `latest-generation-cuda` | `make build-generation-cuda` | NVIDIA vision and CUDA Stable Diffusion |
+| `latest` | `make build` | CPU CLIP, YOLO and Stable Diffusion |
+| `latest-cuda` | `make build-cuda` | CUDA CLIP and Stable Diffusion, CPU YOLO |
 
 ```sh
 docker run --rm --init \
@@ -21,7 +19,19 @@ docker run --rm --init \
   psyb0t/imagies:latest
 ```
 
-Pass `--gpus all` to a CUDA image. For a smaller local build, `make build EDITING_ONLY=1` leaves out CLIP and YOLO. The same flag on a generation build keeps the generation worker.
+Pass `--gpus all` to a CUDA image. When upgrading from `latest-generation` or `latest-generation-cuda`, switch to `latest` or `latest-cuda` respectively and keep your existing storage.
+
+## Storage mounts
+
+Mount a named volume or a host directory at `/data`. Imagies saves staged images under `/data/images` and looks for model files under `/data/models`. Image staging and downloads need write access for container UID and GID `10001`.
+
+To reuse an existing directory of generation weights, add this mount alongside the `/data` volume. Change the source to your host directory.
+
+```sh
+--mount "type=bind,source=$PWD/weights,target=/data/models/generation,readonly"
+```
+
+Use the same mount without `readonly` when running the model downloader.
 
 ## Model files
 
@@ -29,7 +39,7 @@ Pass `--gpus all` to a CUDA image. For a smaller local build, `make build EDITIN
 docker run --rm -v imagies:/data psyb0t/imagies:latest \
   python -m imagies.models clip
 
-docker run --rm -v imagies:/data psyb0t/imagies:latest-generation \
+docker run --rm -v imagies:/data psyb0t/imagies:latest \
   python -m imagies.models generation-cpu
 ```
 
@@ -40,12 +50,10 @@ Use `generation-cuda` with the CUDA generation image to install its larger catal
 | Environment variable | Behavior |
 | --- | --- |
 | `IMAGIES_AUTH_TOKEN` | Optional shared bearer token. Set it before serving clients beyond loopback. |
-| `IMAGIES_DATA_DIR` | Defaults to `/data`. Holds staged files in `images/` and model files in `models/`. |
 | `IMAGIES_MCP_ALLOWED_HOSTS` | Comma-separated allowed MCP Host values. Include the port when the client sends one. |
-| `IMAGIES_GENERATION_MODELS_DIR` | Overrides the generation weights directory, normally `/data/models/generation`. |
-| `IMAGIES_GENERATION` | Set to `1` by generation images. Enables the generation worker and endpoints. |
+| `IMAGIES_GENERATION` | Defaults to `1`. Set it to `0` to skip the worker and generation endpoints. |
 | `IDLE_TIMEOUT` | Generation model idle timeout, default `5m`. |
 | `LOAD_TIMEOUT` | Generation model load timeout, default `10m`. |
 | `HF_TOKEN` | Optional downloader token for gated weights. |
 
-The data volume is writable by container UID and GID `10001`. Keep it attached when you replace the container and back it up if you need the staged files. All authenticated callers share the same staging directory. The service exposes health on `/healthz` without a token.
+Keep the data volume attached when you replace the container. All authenticated callers share the staged images. The service exposes health on `/healthz` without a token.

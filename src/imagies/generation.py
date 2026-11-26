@@ -325,8 +325,15 @@ def attach_generation(app: FastAPI, mcp: FastMCP, store: Store, backend: Generat
         return _relay(await backend.request("POST", _GENERATE, options=options))
 
     @mcp.tool()
-    async def generate(model: str, prompt: str, size: str | None = None) -> Asset:
-        """Generate one image and stage it for download from the image API."""
+    async def generate(
+        model: Annotated[str, Field(description="Full model ID from GET /v1/models.")],
+        prompt: Annotated[str, Field(description="Description of the image to generate.")],
+        size: Annotated[
+            str | None,
+            Field(description="Width x height, for example 512x512. Omit for the model default."),
+        ] = None,
+    ) -> Asset:
+        """Generate one image using installed weights. Returns an image ID for GET /v1/images/{image_id}."""
         options = GenerationRequest(
             model=model, prompt=prompt, size=size, n=1, response_format="b64_json"
         )

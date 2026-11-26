@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.0]
+
+- Ship editing, CLIP, YOLO and generation in both `latest` (CPU) and `latest-cuda` (NVIDIA). Switch from `latest-generation` or `latest-generation-cuda` to those tags and keep your mounted data.
+- Describe each MCP tool and document the model, prompt and size arguments for image generation.
+- Imagies uses fixed paths for data and generation weights. Mount existing storage at `/data` or mount just the generation weights at `/data/models/generation`. Replace the old path environment variables and the downloader's `--data-dir` option with mounts.
+
 ## [0.1.0]
 
 - Added image staging, crop, resize, format conversion and grids.

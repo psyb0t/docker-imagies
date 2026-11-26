@@ -13,7 +13,7 @@ Connect a streamable HTTP MCP client to `http://localhost:8000/v1/mcp`. Add the 
 | `montage` | `spec` with image IDs and grid options | Staged contact sheet |
 | `match` | `spec` with image IDs and text queries | Ranked matches by image |
 | `detect` | `spec` with image IDs and an optional confidence threshold | Object labels, scores, and normalized boxes |
-| `generate` | `model`, `prompt`, and optional `size` | Staged output image, available on generation builds |
+| `generate` | Full `model` ID from `GET /v1/models`, `prompt`, and optional `size` such as `512x512` | One staged output image. Requires generation weights. |
 
 Upload inputs and download staged results using the [REST API](api.md). The `spec` argument takes the same JSON object as the matching REST endpoint.
 

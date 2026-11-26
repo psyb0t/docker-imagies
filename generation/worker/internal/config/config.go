@@ -13,8 +13,9 @@ import (
 	"github.com/psyb0t/gonfiguration"
 )
 
+const generationModelsDir = "/data/models/generation"
+
 type Config struct {
-	ModelRoot       string        `env:"IMAGIES_GENERATION_MODELS_DIR" default:"/data/models/generation"`
 	SDServerPath    string        `env:"SD_SERVER_PATH" default:"/sd-server"`
 	SDServerAddress string        `env:"SD_SERVER_ADDRESS" default:"127.0.0.1:1234"`
 	ModelPrefix     string        `env:"MODEL_PREFIX,required"`
@@ -63,8 +64,8 @@ func LoadRegistry(path string) (*Registry, error) {
 	return &reg, nil
 }
 
-// ResolveModelRoot maps the bundled registry's /models paths onto the configured mount.
-func (r *Registry) ResolveModelRoot(root string) error {
+// ResolveModelRoot maps registry paths under /models to the container's weights directory.
+func (r *Registry) ResolveModelRoot() error {
 	for name, model := range r.Models {
 		for index, arg := range model.Args {
 			asset, found := strings.CutPrefix(arg, "/models/")
@@ -74,7 +75,7 @@ func (r *Registry) ResolveModelRoot(root string) error {
 			if !filepath.IsLocal(asset) {
 				return fmt.Errorf("model %q: invalid asset path", name)
 			}
-			model.Args[index] = filepath.Join(root, asset)
+			model.Args[index] = filepath.Join(generationModelsDir, asset)
 		}
 	}
 	return nil

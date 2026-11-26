@@ -31,7 +31,7 @@ curl --fail-with-body http://localhost:8000/v1/images/transform \
 
 ## Generate an image
 
-On a generation image, use `GET /v1/models` to find the exact model ID. The OpenAI-compatible generation route returns the generated image as base64 when you request `b64_json`.
+Use `GET /v1/models` to find the exact model ID. The OpenAI-compatible generation route returns the generated image as base64 when you request `b64_json`.
 
 ```sh
 curl --fail-with-body http://localhost:8000/v1/images/generations \
@@ -41,7 +41,7 @@ curl --fail-with-body http://localhost:8000/v1/images/generations \
 
 ## Manage a generation engine
 
-On a generation image, `GET /v1/generation/engines` lists engine IDs. The bundled `sdcpp` engine serves models such as SD Turbo and, in the CUDA image, FLUX.1 Schnell. Use the full model ID returned by `GET /v1/models` in both generation and model selection requests.
+`GET /v1/generation/engines` lists engine IDs. The bundled `sdcpp` engine serves models such as SD Turbo and, in the CUDA image, FLUX.1 Schnell. Use the full model ID returned by `GET /v1/models` in both generation and model selection requests.
 
 | Method and path | Result |
 | --- | --- |

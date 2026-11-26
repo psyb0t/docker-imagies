@@ -1,6 +1,6 @@
 [project]
 name = "imagies"
-version = "0.1.0"
+version = "0.2.0"
 description = "Still-image editing and analysis over REST and MCP"
 requires-python = ">=3.12,<3.13"
 dependencies = ["fastapi==0.115.12", "httpx==0.28.1", "mcp==1.27.1", "pillow==12.2.0", "uvicorn==0.34.2"]

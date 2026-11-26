@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.concurrency import run_in_threadpool
 
+from imagies.constants import DATA_DIR
 from imagies.errors import ImageMissing, InvalidImage, ModelUnavailable
 from imagies.generation import Generation, attach_generation
 from imagies.images import (
@@ -65,7 +66,7 @@ def build_app(
             await stack.enter_async_context(mcp.session_manager.run())
             yield
 
-    app = FastAPI(title="Imagies", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Imagies", version="0.2.0", lifespan=lifespan)
 
     @app.middleware("http")
     async def authorize(request: Request, call_next: Any) -> Response:
@@ -145,11 +146,13 @@ def build_app(
     @app.post("/v1/images/transform", description="Crop, resize and encode a staged image.")
     @mcp.tool()
     async def transform(spec: Transform) -> Asset:
+        """Crop, resize, or convert one staged image. Returns the new image ID and dimensions."""
         return await run_in_threadpool(store.transform, spec)
 
     @app.post("/v1/images/montage", description="Lay out staged still images in a single grid.")
     @mcp.tool()
     async def montage(spec: Montage) -> Asset:
+        """Arrange staged images into a grid in input order. Returns the staged grid image ID."""
         return await run_in_threadpool(store.montage, spec)
 
     @app.post(
@@ -157,6 +160,7 @@ def build_app(
     )
     @mcp.tool()
     async def match(spec: Match) -> dict[str, list[dict[str, Any]]]:
+        """Rank text queries for each staged image by CLIP similarity. Requires local CLIP weights."""
         paths = store.paths(spec.image_ids)
         results = await run_in_threadpool(vision.match, paths, spec.queries)
         return {
@@ -171,6 +175,7 @@ def build_app(
     )
     @mcp.tool()
     async def detect(spec: Detect) -> dict[str, list[dict[str, Any]]]:
+        """Find objects in staged images. Returns labels, scores, and normalized boxes."""
         paths = store.paths(spec.image_ids)
         results = await run_in_threadpool(vision.detect, paths, spec.confidence)
         return {
@@ -187,7 +192,7 @@ def build_app(
 
 
 app = build_app(
-    Path(os.environ.get("IMAGIES_DATA_DIR", "/data")),
+    DATA_DIR,
     os.environ.get("IMAGIES_AUTH_TOKEN", ""),
     Generation() if os.environ.get("IMAGIES_GENERATION") == "1" else None,
 )
