@@ -5,7 +5,7 @@
 [![license](https://raw.githubusercontent.com/psyb0t/docker-imagies/badges/license.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/psyb0t/imagies?style=flat-square)](https://hub.docker.com/r/psyb0t/imagies)
 
-Self-hosted still-image tools. Crop, resize, convert and tile images, match them against text with CLIP, find objects with YOLO, or generate images with Stable Diffusion. REST and MCP run on the same port.
+Throw your images at it. Crop the awkward bits, resize them, convert formats, or tile a pile into one grid. Need to find what's in the damn picture? Use CLIP for text matching or YOLO for object detection. Stable Diffusion generates new images. It all runs in your Docker container, through REST or MCP on the same port.
 
 ## Contents
 

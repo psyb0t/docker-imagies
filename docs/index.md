@@ -6,7 +6,7 @@ description: Edit, analyze, and generate still images through the Imagies REST A
 
 # Imagies
 
-Imagies stages and edits still images, ranks them with CLIP, detects objects with YOLO, and runs Stable Diffusion through stable-diffusion.cpp. The same service exposes REST and streamable HTTP MCP.
+Got a pile of images to wrangle? Imagies handles the editing, text matching, object detection, and generation in one Docker service. Upload a still image, use its ID in an operation, and download the result. REST clients and MCP agents call the same operations.
 
 | To do this | Read |
 | --- | --- |
